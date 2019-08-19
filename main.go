@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
+
+	"github.com/jedib0t/go-pretty/table"
 )
 
 type result struct {
@@ -71,10 +74,7 @@ func main() {
 
 	go scrapeResults(results, gameweek, team, &wg)
 
-	for result := range results {
-		fmt.Printf("%s vs %s: %s", result.hTeam, result.aTeam, result.finalScore)
-		fmt.Println()
-	}
+	printResults(results)
 }
 
 func getJson(url string, target interface{}) error {
@@ -139,4 +139,16 @@ func scrapeResults(results chan<- result, gameweek *int, team *string, wg *sync.
 	}
 
 	wg.Done()
+}
+
+func printResults(results <-chan result) {
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.AppendHeader(table.Row{"HOME", "AWAY", "SCORE"})
+
+	for result := range results {
+		t.AppendRow(table.Row{result.hTeam, result.aTeam, result.finalScore})
+	}
+
+	t.Render()
 }
