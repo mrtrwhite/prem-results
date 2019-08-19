@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"sync"
-
-	"github.com/jinzhu/now"
 )
 
 type result struct {
@@ -20,12 +18,30 @@ type result struct {
 	network    string
 }
 
-type apiResponse struct {
+type fixtureApiResponse struct {
 	Content []apiResult
 }
 
+type compSeasonApiResponse struct {
+	Content []apiCompetition
+}
+
+type apiCompetition struct {
+	Id float32
+}
+
 type apiResult struct {
-	Teams []apiTeam
+	Teams    []apiTeam
+	Gameweek apiGameWeek
+}
+
+type apiGameWeek struct {
+	Gameweek   float32
+	CompSeason apiCompSeason
+}
+
+type apiCompSeason struct {
+	Id float32
 }
 
 type apiTeam struct {
@@ -39,8 +55,7 @@ type apiTeamDetail struct {
 
 func main() {
 	team := flag.String("team", "", "The team you want results for.")
-	start := flag.String("start", now.BeginningOfWeek().String(), "The start of the gameweek.")
-	end := flag.String("end", now.EndOfWeek().String(), "The end of the gameweek.")
+	gameweek := flag.Int("gameweek", 0, "The gameweek to pull results from.")
 
 	flag.Parse()
 
@@ -54,7 +69,7 @@ func main() {
 		close(results)
 	}()
 
-	go scrapeResults(results, start, end, team, &wg)
+	go scrapeResults(results, gameweek, team, &wg)
 
 	for result := range results {
 		fmt.Printf("%s vs %s: %s", result.hTeam, result.aTeam, result.finalScore)
@@ -62,7 +77,7 @@ func main() {
 	}
 }
 
-func getJson(url string, target *apiResponse) error {
+func getJson(url string, target interface{}) error {
 	client := http.Client{}
 	r, err := client.Get(url)
 	if err != nil {
@@ -72,10 +87,36 @@ func getJson(url string, target *apiResponse) error {
 	return json.NewDecoder(r.Body).Decode(target)
 }
 
-func scrapeResults(results chan<- result, start, end, team *string, wg *sync.WaitGroup) {
-	target := apiResponse{}
+func isFlagPassed(name string) bool {
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
 
-	err := getJson("https://footballapi.pulselive.com/football/fixtures?comps=1&pageSize=40&sort=desc&statuses=C", &target)
+func compSeason() int32 {
+	target := compSeasonApiResponse{}
+
+	err := getJson("https://footballapi.pulselive.com/football/competitions/1/compseasons", &target)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return int32(target.Content[0].Id)
+}
+
+func scrapeResults(results chan<- result, gameweek *int, team *string, wg *sync.WaitGroup) {
+	target := fixtureApiResponse{}
+
+	compSeason := compSeason()
+
+	url := fmt.Sprintf("https://footballapi.pulselive.com/football/fixtures?comps=1&pageSize=40&sort=desc&statuses=C&compSeasons=%d", compSeason)
+
+	err := getJson(url, &target)
 
 	if err != nil {
 		log.Fatal(err)
@@ -83,6 +124,12 @@ func scrapeResults(results chan<- result, start, end, team *string, wg *sync.Wai
 
 	for _, lineitem := range target.Content {
 		teams := lineitem.Teams
+
+		gameweekSet := isFlagPassed("gameweek")
+
+		if gameweekSet && int(lineitem.Gameweek.Gameweek) != *gameweek {
+			continue
+		}
 
 		results <- result{
 			hTeam:      teams[0].Team.Name,
