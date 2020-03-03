@@ -9,7 +9,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/jedib0t/go-pretty/table"
+	"github.com/jedib0t/go-pretty"
 )
 
 type result struct {
